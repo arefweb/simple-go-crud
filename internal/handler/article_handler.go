@@ -6,8 +6,10 @@ import (
 	"io"
 	"net/http"
 	"time"
+	"strconv"
 
 	"github.com/rs/zerolog"
+	"github.com/go-chi/chi/v5"
 	"go-postgres-api/internal/model"
 	"go-postgres-api/internal/repository"
 )
@@ -90,8 +92,73 @@ func (h *ArticleHandler) Create(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, a)
 }
 
+
+func (h *ArticleHandler) Update(w http.ResponseWriter, r *http.Request) {
+    ctx := r.Context()
+    ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+    defer cancel()
+
+    // Parse ID from URL using chi
+    idStr := chi.URLParam(r, "id")
+    id, err := strconv.ParseInt(idStr, 10, 64) // Adjust type if ID is not int64
+    if err != nil {
+        http.Error(w, "invalid id", http.StatusBadRequest)
+        return
+    }
+
+    var payload struct {
+        Title       string  `json:"title"`
+        Content     string  `json:"content"`
+        Author      string  `json:"author"`
+        PublishedAt *string `json:"published_at,omitempty"` // ISO8601
+    }
+    body, err := io.ReadAll(r.Body)
+    if err != nil {
+        http.Error(w, "bad request", http.StatusBadRequest)
+        return
+    }
+    if err := json.Unmarshal(body, &payload); err != nil {
+        http.Error(w, "invalid json", http.StatusBadRequest)
+        return
+    }
+
+    // Basic validation
+    if payload.Title == "" || payload.Content == "" || payload.Author == "" {
+        http.Error(w, "title, content and author are required", http.StatusBadRequest)
+        return
+    }
+    var published *time.Time
+    if payload.PublishedAt != nil && *payload.PublishedAt != "" {
+        t, err := time.Parse(time.RFC3339, *payload.PublishedAt)
+        if err != nil {
+            http.Error(w, "published_at must be RFC3339", http.StatusBadRequest)
+            return
+        }
+        published = &t
+    }
+
+    a := &model.Article{
+        ID:          id,
+        Title:       payload.Title,
+        Content:     payload.Content,
+        Author:      payload.Author,
+        PublishedAt: published,
+    }
+
+    if err := h.Repo.Update(ctx, a); err != nil {
+        h.Logger.Error().Err(err).Msg("failed to update article")
+        http.Error(w, "internal error", http.StatusInternalServerError)
+        return
+    }
+
+    writeJSON(w, http.StatusOK, a)
+}
+
+
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
 }
+
+

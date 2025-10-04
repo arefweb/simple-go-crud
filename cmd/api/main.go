@@ -20,7 +20,7 @@ import (
 func main() {
 	// reads env with os.Getenv
 	dbURL := getenv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/simple_db?sslmode=disable")
-	addr := getenv("HTTP_ADDR", ":8080")
+	addr := getenv("HTTP_ADDR", ":6060")
 
 	// logger
 	zerolog.TimeFieldFormat = time.RFC3339
@@ -37,22 +37,23 @@ func main() {
 
 	// create repo and handler
 	repo := repository.NewPGArticleRepo(pool)
-	h := handler.NewArticleHandler(repo, logger.With().Str("component", "handler").Logger())
+	articleHandler := handler.NewArticleHandler(repo, logger.With().Str("component", "handler").Logger())
 
-	r := chi.NewRouter()
-	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
-	r.Use(middleware.Logger) // chi request logger (simple)
-	r.Use(middleware.Recoverer)
+	router := chi.NewRouter()
+	router.Use(middleware.RequestID)
+	router.Use(middleware.RealIP)
+	router.Use(middleware.Logger) // chi request logger (simple)
+	router.Use(middleware.Recoverer)
 
-	r.Route("/articles", func(r chi.Router) {
-		r.Get("/", h.List)
-		r.Post("/", h.Create)
+	router.Route("/articles", func(router chi.Router) {
+		router.Get("/", articleHandler.List)
+		router.Post("/", articleHandler.Create)
+		router.Put("/{id}", articleHandler.Update)
 	})
 
 	srv := &http.Server{
 		Addr:         addr,
-		Handler:      r,
+		Handler:      router,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  60 * time.Second,
